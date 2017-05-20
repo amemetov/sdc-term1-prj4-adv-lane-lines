@@ -63,18 +63,20 @@ def gradient_threshold(img, working_ch='gray',
     # Apply each of the thresholding functions
     gradx = abs_sobel_threshold(sobelx, thresh=x_abs_thresh)
     grady = abs_sobel_threshold(sobely, thresh=y_abs_thresh)
-    #mag_binary = mag_threshold(sobelx, sobely, thresh=mag_thresh)
+    mag_binary = mag_threshold(sobelx, sobely, thresh=mag_thresh)
     dir_binary = dir_threshold(sobelx, sobely, thresh=dir_thresh)
 
     combined = np.zeros_like(dir_binary)
-    #combined[((gradx == 1) & (grady == 1)) | ((mag_binary == 1) & (dir_binary == 1))] = 1
+    # combined[((gradx == 1) & (grady == 1)) | ((mag_binary == 1) & (dir_binary == 1))] = 1
+    # combined[(((gradx == 1) | (grady == 1))) & (mag_binary == 1) & (dir_binary == 1)] = 1
     combined[(((gradx == 1) | (grady == 1))) & (dir_binary == 1)] = 1
 
     return combined
 
+
 """
 This method is used for flow:
-origin_image -> undistort -> top-down-perspective (aka bird-eye-view) -> threshold
+origin_image -> undistort -> threshold -> top-down-perspective (aka bird-eye-view)
 """
 def threshold_image(img):
     img = np.copy(img)
@@ -89,13 +91,15 @@ def threshold_image(img):
     grad_g_binary = gradient_threshold(img, 'G', ksize, x_abs_thresh, y_abs_thresh, mag_thresh, dir_thresh)
     # use S channel of HSL
     grad_s_binary = gradient_threshold(img, 'S', ksize, x_abs_thresh, y_abs_thresh, mag_thresh, dir_thresh)
+    # use L channel of HSL
+    # grad_l_binary = gradient_threshold(img, 'L', ksize, x_abs_thresh, y_abs_thresh, mag_thresh, dir_thresh)
 
     # Combine
     combined = np.zeros_like(grad_g_binary)
     combined[(grad_g_binary == 1) | (grad_s_binary == 1)] = 1
+    # combined[(grad_g_binary == 1) | (grad_s_binary == 1) | (grad_l_binary == 1)] = 1
 
     # Stack each channel
-    # color_binary = np.dstack((np.zeros_like(sxbinary), grad_g_binary, grad_s_binary))
     color_binary = np.dstack((combined, grad_g_binary, grad_s_binary))
     return color_binary
 
