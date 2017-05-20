@@ -1,6 +1,7 @@
 import matplotlib.image as mpimg
 import numpy as np
 import cv2
+from skimage import exposure
 
 
 def calc_chessboards_corners(images, num_x, num_y):
@@ -27,20 +28,75 @@ def calc_chessboards_corners(images, num_x, num_y):
     return objpoints, imgpoints
 
 
-def undistort(img, objpoints, imgpoints):
+"""Applies a Gaussian Noise kernel"""
+def gaussian_blur(img, kernel_size=3):
+    return cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
+
+def equalize_hist(img):
+    img = exposure.equalize_hist(img)
+    img = (img * 255).astype(np.uint8)
+    return img
+
+
+def load_image(fname):
+    return mpimg.imread(fname)
+
+
+def preprocess_image(img):
+    # img = gaussian_blur(img)
+    # img = equalize_hist(img)
+    return img
+
+# hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+# lower_white = np.array([27/2, 128, 128], dtype=np.uint8)
+# upper_white = np.array([76/2, 255, 200], dtype=np.uint8)
+# mask_yellow = cv2.inRange(hls, lower_white, upper_white)
+# img = cv2.bitwise_and(img, img, mask=mask_yellow)
+
+
+
+
+
+# def calibrate_undistort(img, objpoints, imgpoints):
+#     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, (img.shape[1], img.shape[0]), None, None)
+#     undist = cv2.undistort(img, mtx, dist, None, mtx)
+#     return undist
+
+def calibrate(img, objpoints, imgpoints):
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, (img.shape[1], img.shape[0]), None, None)
-    undist = cv2.undistort(img, mtx, dist, None, mtx)
+    return mtx, dist
+
+def undistort(img, calibration_mtx, calibration_dist):
+    undist = cv2.undistort(img, calibration_mtx, calibration_dist, None, calibration_mtx)
     return undist
 
 
-def unwrap(img, objpoints, imgpoints, src, dst):
-    undist_img = undistort(img, objpoints, imgpoints)
-
+def warp(undist_img, matrix):
     img_size = (undist_img.shape[1], undist_img.shape[0])
 
-    M = cv2.getPerspectiveTransform(src, dst)
+    #M = cv2.getPerspectiveTransform(src, dst)
 
     # Warp the image using OpenCV warpPerspective()
-    warped = cv2.warpPerspective(undist_img, M, img_size)
+    warped = cv2.warpPerspective(undist_img, matrix, img_size)
 
     return warped
+
+
+def unwrap(undist, Minv, ploty, left_fitx, right_fitx):
+    # Create an image to draw the lines on
+    color_warp = np.zeros_like(undist)
+
+    # Recast the x and y points into usable format for cv2.fillPoly()
+    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+    pts = np.hstack((pts_left, pts_right))
+
+    # Draw the lane onto the warped blank image
+    cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
+
+    # Warp the blank back to original image space using inverse perspective matrix (Minv)
+    new_warp = cv2.warpPerspective(color_warp, Minv, (undist.shape[1], undist.shape[0]))
+
+    # Combine the result with the original image
+    result = cv2.addWeighted(undist, 1, new_warp, 0.3, 0)
+    return result
