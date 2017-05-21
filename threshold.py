@@ -2,6 +2,8 @@ import numpy as np
 import cv2
 import math as m
 
+import utils
+
 # This function applies Sobel x or y, then takes an absolute value and applies a threshold.
 def abs_sobel_threshold(sobel, thresh=(0, 255)):
     # Take the absolute value of the derivative or gradient
@@ -68,10 +70,40 @@ def gradient_threshold(img, working_ch='gray',
 
     combined = np.zeros_like(dir_binary)
     # combined[((gradx == 1) & (grady == 1)) | ((mag_binary == 1) & (dir_binary == 1))] = 1
-    # combined[(((gradx == 1) | (grady == 1))) & (mag_binary == 1) & (dir_binary == 1)] = 1
-    combined[(((gradx == 1) | (grady == 1))) & (dir_binary == 1)] = 1
+    combined[(((gradx == 1) | (grady == 1))) & (mag_binary == 1) & (dir_binary == 1)] = 1
+    #combined[(((gradx == 1) | (grady == 1))) & (dir_binary == 1)] = 1
 
     return combined
+
+
+def color_mask(hsv,low,high):
+    # Return mask from HSV
+    mask = cv2.inRange(hsv, low, high)
+    return mask
+
+def apply_color_mask(hsv,img,low,high):
+    # Apply color mask to image
+    mask = cv2.inRange(hsv, low, high)
+    res = cv2.bitwise_and(img,img, mask= mask)
+    return res
+
+
+def color_threshold(img):
+    image_HSV = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+
+    yellow_hsv_low = np.array([0, 100, 100])
+    yellow_hsv_high = np.array([80, 255, 255])
+
+    white_hsv_low = np.array([0, 0, 160])
+    white_hsv_high = np.array([255, 80, 255])
+
+    # white_hsv_low  = np.array([  0,   0,    80])
+    # white_hsv_high = np.array([ 255,  255, 255])
+
+    mask_yellow = color_mask(image_HSV, yellow_hsv_low, yellow_hsv_high)
+    mask_white = color_mask(image_HSV, white_hsv_low, white_hsv_high)
+    mask_lane = cv2.bitwise_or(mask_yellow, mask_white)
+    return (mask_lane/255.)
 
 
 """
@@ -79,6 +111,32 @@ This method is used for flow:
 origin_image -> undistort -> threshold -> top-down-perspective (aka bird-eye-view)
 """
 def threshold_image(img):
+    #img = np.copy(img)
+    img = utils.gaussian_blur(img, kernel_size=5)
+
+    ksize = 11
+    x_abs_thresh = (20, 100)
+    y_abs_thresh = (20, 100)
+    mag_thresh = (20, 100)
+    dir_thresh = (m.radians(0), m.radians(10))
+
+    # use Grayscale
+    grad_g_binary = gradient_threshold(img, 'G', ksize, x_abs_thresh, y_abs_thresh, mag_thresh, dir_thresh)
+    # use S channel of HSL
+    grad_s_binary = gradient_threshold(img, 'S', ksize, x_abs_thresh, y_abs_thresh, mag_thresh, dir_thresh)
+    # use L channel of HSL
+    # grad_l_binary = gradient_threshold(img, 'L', ksize, x_abs_thresh, y_abs_thresh, mag_thresh, dir_thresh)
+
+    # Combine
+    combined = np.zeros_like(grad_g_binary)
+    combined[(grad_g_binary == 1) | (grad_s_binary == 1)] = 1
+    # combined[(grad_g_binary == 1) | (grad_s_binary == 1) | (grad_l_binary == 1)] = 1
+
+    # Stack each channel
+    color_binary = np.dstack((combined, grad_g_binary, grad_s_binary))
+    return color_binary
+
+def threshold_image2(img):
     img = np.copy(img)
 
     ksize = 11
@@ -102,7 +160,6 @@ def threshold_image(img):
     # Stack each channel
     color_binary = np.dstack((combined, grad_g_binary, grad_s_binary))
     return color_binary
-
 
 
 # def threshold_image(img, s_thresh=(170, 255)):

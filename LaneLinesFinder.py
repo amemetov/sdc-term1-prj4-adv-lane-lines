@@ -15,12 +15,18 @@ class Line(object):
         self.detected = False
         # x values of the last n fits of the line
         self.recent_xfitted = []
+
         #average x values of the fitted line over the last n iterations
         self.bestx = None
+
         #polynomial coefficients averaged over the last n iterations
         self.best_fit = None
+
         #polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]
+
+        self.recent_fits = deque([], maxlen=5)
+
         #radius of curvature of the line in some units
         self.radius_of_curvature = None
         #distance in meters of vehicle center from the line
@@ -45,40 +51,179 @@ class LaneLinesFinder(object):
         self.left = Line()
         self.right = Line()
 
+        # (min_y_dist + mid_y_dist + max_y_dist) / 3
+        #self.recent_distances = deque([], maxlen=10)
+        self.recent_dist_min_y = 0
+        self.recent_dist_mid_y = 0
+        self.recent_dist_max_y = 0
+
     def process_image(self, img):
         if self.calibration_mtx is None:
             self.calibration_mtx, self.calibration_dist = utils.calibrate(img, self.distortion_obj_pts, self.distortion_img_pts)
             #mpimg.imsave('1.jpg', img, format='jpg')
 
         undist_img = utils.undistort(img, self.calibration_mtx, self.calibration_dist)
-        thresholded_img = threshold.threshold_image(undist_img)
-        warped_img = utils.warp(thresholded_img, self.warp_mtx)[:,:,0]
 
-        out_img, left_fit, right_fit = self.find_lane_lines(warped_img)
+        #thresholded_img = threshold.threshold_image(undist_img)
+        #warped_img = utils.warp(thresholded_img, self.warp_mtx)[:,:,0]
+        #out_img, left_fit, right_fit = self.find_lane_lines(warped_img)
 
-        # store lines
-        self.left.detected = left_fit is not None
-        self.right.detected = right_fit is not None
-        self.left.current_fit = left_fit
-        self.right.current_fit = right_fit
+        warped_img = utils.warp(undist_img, self.warp_mtx)
+        thresholded_img = threshold.threshold_image(warped_img)
+        out_img, left_fit, right_fit = self.find_lane_lines(undist_img, thresholded_img[:, :, 0])
 
-        # no lane lines found - just return undist image
-        if left_fit is None or right_fit is None:
-            print('Not Found!')
-            return undist_img
+        return self.post_process_frame(undist_img, left_fit, right_fit)
 
-        ploty, left_fitx, right_fitx = generate_fit_coords(img, left_fit, right_fit)
-
-        result = utils.unwrap(undist_img, self.warp_mtx_inv, ploty, left_fitx, right_fitx)
-        return result
-
-    def find_lane_lines(self, warped_img):
+    def find_lane_lines(self, undist_img, warped_img):
         #out_img, left_fit, right_fit = find_lane_lines(warped_img)
         if self.left.detected == False or self.right.detected == False:
             return find_lane_lines(warped_img, gen_out_img=False)
 
         out_img, left_fit, right_fit = optimized_find_lane_lines(warped_img, self.left.current_fit, self.right.current_fit, gen_out_img=False)
+
+        # check whether optimized version was managed to find lane lines
+        if left_fit is None or right_fit is None:
+            # try straight method
+            return find_lane_lines(warped_img, gen_out_img=False)
+
+        # Sanity checks
+        dist_min_y, dist_mid_y, dist_max_y = self.calc_distances(warped_img, left_fit, right_fit)
+
+        max_dist_diff = 50
+        if math.fabs(dist_min_y - dist_mid_y) > max_dist_diff or \
+            math.fabs(dist_min_y - dist_max_y) > max_dist_diff or \
+            math.fabs(dist_mid_y - dist_max_y) > max_dist_diff:
+            # try straight method
+            return find_lane_lines(warped_img, gen_out_img=False)
+
+        txt_color = (255, 255, 255)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(undist_img, 'Dist min Y {0:.2f}'.format(dist_min_y), (600, 50), font, 1, txt_color, 2)
+        cv2.putText(undist_img, 'Dist mid Y {0:.2f}'.format(dist_mid_y), (600, 100), font, 1, txt_color, 2)
+        cv2.putText(undist_img, 'Dist max Y {0:.2f}'.format(dist_max_y), (600, 150), font, 1, txt_color, 2)
+
         return out_img, left_fit, right_fit
+
+    def calc_distances(self, img, left_fit, right_fit):
+        ploty, left_fitx, right_fitx = generate_fit_coords(img, left_fit, right_fit)
+        min_y, max_y = np.min(ploty), np.max(ploty)
+        mid_y = (min_y + max_y) / 2
+
+        poly_left = np.poly1d(left_fit)
+        poly_right = np.poly1d(right_fit)
+        dist_min_y = math.fabs(poly_left(min_y) - poly_right(min_y))
+        dist_mid_y = math.fabs(poly_left(mid_y) - poly_right(mid_y))
+        dist_max_y = math.fabs(poly_left(max_y) - poly_right(max_y))
+        return dist_min_y, dist_mid_y, dist_max_y
+
+    def post_process_frame(self, undist_img, left_fit, right_fit):
+        # Sanity checks
+        dist_min_y, dist_mid_y, dist_max_y = 0, 0, 0
+        # if left_fit is not None and right_fit is not None and len(self.left.recent_fits) > 0:
+        #     dist_min_y, dist_mid_y, dist_max_y = self.calc_distances(undist_img, left_fit, right_fit)
+        #
+        #     max_dist_diff = 50
+        #     if math.fabs(dist_min_y - self.recent_dist_min_y) > max_dist_diff or \
+        #         math.fabs(dist_mid_y - self.recent_dist_mid_y) > max_dist_diff or \
+        #         math.fabs(dist_max_y - self.recent_dist_max_y) > max_dist_diff:
+        #         # something wrong, use last predictions
+        #         left_fit = right_fit = None
+
+        # store lines
+        self.left.detected = left_fit is not None
+        self.right.detected = right_fit is not None
+
+        self.left.current_fit = left_fit
+        self.right.current_fit = right_fit
+
+        # build average fit
+        avg_left_fit = self.average_fit(self.left, left_fit)
+        avg_right_fit = self.average_fit(self.right, right_fit)
+
+        # store fits
+        if left_fit is not None and right_fit is not None:
+            self.left.recent_fits.append(left_fit)
+            self.right.recent_fits.append(right_fit)
+            self.recent_dist_min_y = dist_min_y
+            self.recent_dist_mid_y = dist_mid_y
+            self.recent_dist_max_y = dist_max_y
+
+        # use average fits
+        left_fit = avg_left_fit
+        right_fit = avg_right_fit
+
+        ploty, left_fitx, right_fitx = generate_fit_coords(undist_img, left_fit, right_fit)
+
+        self.left.radius_of_curvature, self.left.line_base_pos = calc_curvature_and_dist(undist_img, ploty, left_fitx)
+        self.right.radius_of_curvature, self.right.line_base_pos = calc_curvature_and_dist(undist_img, ploty, right_fitx)
+        deviation_from_center = (math.fabs(self.right.line_base_pos - self.left.line_base_pos)/2)*100
+
+        txt_color = (255, 255, 255)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(undist_img, 'Left radius curvature: {0:.2f} m'.format(self.left.radius_of_curvature), (10, 50), font, 1, txt_color, 2)
+        cv2.putText(undist_img, 'Right radius curvature: {0:.2f} m'.format(self.right.radius_of_curvature), (10, 100), font, 1, txt_color, 2)
+        cv2.putText(undist_img, 'Distance to Left line: {0:.2f} m'.format(self.left.line_base_pos), (10, 150), font, 1, txt_color, 2)
+        cv2.putText(undist_img, 'Distance to Right line: {0:.2f} m'.format(self.right.line_base_pos), (10, 200), font, 1, txt_color, 2)
+        cv2.putText(undist_img, 'Deviation from center: {0:.2f} cm'.format(deviation_from_center), (10, 250), font, 1, txt_color, 2)
+        cv2.putText(undist_img, 'Left: {0}'.format(left_fit), (10, 300), font, 1, txt_color, 2)
+        cv2.putText(undist_img, 'Right: {0}'.format(right_fit), (10, 350), font, 1, txt_color, 2)
+
+        result = utils.unwrap(undist_img, self.warp_mtx_inv, ploty, left_fitx, right_fitx)
+        return result
+
+
+    def average_fit(self, line, fit):
+        models_num = len(line.recent_fits)
+        if models_num == 0:
+            return fit
+
+        avg_models_weights_start = 0.01
+        avg_models_weights_stop = 0.99
+        weights = np.linspace(avg_models_weights_start, avg_models_weights_stop, num=models_num)
+        idx = 0
+        coeffs_accum = None
+        for recent_fit in line.recent_fits:
+            coeffs = np.copy(recent_fit) if recent_fit is not None else np.zeros(3)
+            coeffs *= weights[idx]
+            if coeffs_accum is None:
+                coeffs_accum = coeffs
+            else:
+                coeffs_accum += coeffs
+            idx += 1
+
+        if fit is not None:
+            coeffs_accum += fit
+            result_coeffs = coeffs_accum / (np.sum(weights) + 1)
+        else:
+            result_coeffs = coeffs_accum / np.sum(weights)
+
+        #return np.poly1d(result_coeffs)
+        return result_coeffs
+
+
+def calc_curvature_and_dist(img, ploty, fitx):
+    # Define y-value where we want radius of curvature
+    # choose the maximum y-value, corresponding to the bottom of the image
+    y_eval = np.max(ploty)
+
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30 / 720  # meters per pixel in y dimension
+    xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+
+    # Fit new polynomials to x,y in world space
+    fit = np.polyfit(ploty * ym_per_pix, fitx * xm_per_pix, 2)
+
+    # Calculate the new radii of curvature
+    radius_of_curvature = ((1 + (2 * fit[0] * y_eval * ym_per_pix + fit[1]) ** 2) ** 1.5) / np.absolute(2 * fit[0])
+
+    poly = np.poly1d(fit)
+
+    line_x = poly(y_eval * ym_per_pix)
+    camera_x = (img.shape[1] / 2.) * xm_per_pix
+
+    distance = math.fabs(line_x - camera_x)
+
+    return radius_of_curvature, distance
 
 
 def generate_fit_coords(img, left_fit, right_fit):
@@ -87,11 +232,13 @@ def generate_fit_coords(img, left_fit, right_fit):
     right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
     return ploty, left_fitx, right_fitx
 
+
 def find_initial_left_right_positions(img):
     w, h = img.shape[1], img.shape[0]
 
     # Take a histogram of the bottom half of the image
-    histogram = np.sum(img[h // 2:, :], axis=0)
+    #histogram = np.sum(img[h // 2:, :], axis=0)
+    histogram = np.sum(img[h // 2 - 100:, :], axis=0)
 
     # Find the peak of the left and right halves of the histogram
     # These will be the starting point for the left and right lines
@@ -276,7 +423,7 @@ def optimized_find_lane_lines(warped_img, left_fit, right_fit, gen_out_img=True)
 
 
 
-def find_lane_lines1(binary_warped):
+def find_lane_lines2(binary_warped, gen_out_img=True):
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
