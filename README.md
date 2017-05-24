@@ -103,7 +103,7 @@ Here's an example of my output for the first approach:
 
 The code for my perspective transform includes a function called `warp()`, which appears in lines 60 in the file [utils.py](utils.py).  
 The `warp()` function takes as inputs an image (`img`) and PerspectiveTransformMatrix `matrix`.
-The `matrix` is computed in hte IPython notebook in the cell #12 using hardcoded source (`src`) and destination (`dst`) points:
+The `matrix` is computed in the IPython notebook in the cell #13 using hardcoded source (`src`) and destination (`dst`) points:
 
 ```python
 src = np.float32([[(img_size[0] / 2) - 60, img_size[1] / 2 + 100],
@@ -143,9 +143,13 @@ The method `find_lane_lines` appears in line 331 in the file [LaneLinesFinder.py
 The I used a 2nd order polynomial to fit found pixels to the result curve.
 
 Here is the result of Thresholding of Warped image:
+
 ![alt text][test_img2_warped_thresholded]
 
+
 And below is the result of fitting 2nd order polynomial:
+
+
 ![alt text][test_img2_fit]
 
 
