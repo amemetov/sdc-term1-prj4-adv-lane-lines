@@ -8,19 +8,13 @@ import utils
 import threshold
 
 
-# Define a class to receive the characteristics of each line detection
+"""
+Class holds the characteristics of each line detection
+"""
 class Line(object):
     def __init__(self):
         # was the line detected in the last iteration?
         self.detected = False
-        # x values of the last n fits of the line
-        self.recent_xfitted = []
-
-        #average x values of the fitted line over the last n iterations
-        self.bestx = None
-
-        #polynomial coefficients averaged over the last n iterations
-        self.best_fit = None
 
         #polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]
@@ -29,16 +23,17 @@ class Line(object):
 
         #radius of curvature of the line in some units
         self.radius_of_curvature = None
+
         #distance in meters of vehicle center from the line
         self.line_base_pos = None
-        #difference in fit coefficients between last and new fits
-        self.diffs = np.array([0,0,0], dtype='float')
-        #x values for detected line pixels
-        self.allx = None
-        #y values for detected line pixels
-        self.ally = None
 
 
+"""
+LaneLinesFinder class manages lane detecting process.
+It requires Camera calibration data (3d real world space points with corresponding 2d image plane points)
+and warp/unwarp points.
+The entry point of the class is the method process_image.
+"""
 class LaneLinesFinder(object):
     def __init__(self, distortion_obj_pts, distortion_img_pts, warp_src_pts, warp_dst_pts):
         self.distortion_obj_pts = distortion_obj_pts
@@ -51,12 +46,23 @@ class LaneLinesFinder(object):
         self.left = Line()
         self.right = Line()
 
-        # (min_y_dist + mid_y_dist + max_y_dist) / 3
-        #self.recent_distances = deque([], maxlen=10)
         self.recent_dist_min_y = 0
         self.recent_dist_mid_y = 0
         self.recent_dist_max_y = 0
 
+    """
+    Method process_image do the following steps:
+    1. Computes Camera Calibration Matrix and Distortion Coefficients (only for the first passed image)
+    2. Undistorts the image
+    3. Warps the image to get top-down-perspective (aka bird-eye-view)
+    4. Thresholds the image
+    5. Detects lane line (using optimized version if possible)
+    6. Computes average lane line using recent detected lanes.
+    6. Computes a curvature and a position relatively to the lane.
+    7. Draws detected lane line on the undistorted image
+    8. Draws the curvature an the position info on the undistorted image
+    9. Returns the result undistorted image
+    """
     def process_image(self, img):
         if self.calibration_mtx is None:
             self.calibration_mtx, self.calibration_dist = utils.calibrate(img, self.distortion_obj_pts, self.distortion_img_pts)
@@ -64,18 +70,26 @@ class LaneLinesFinder(object):
 
         undist_img = utils.undistort(img, self.calibration_mtx, self.calibration_dist)
 
-        #thresholded_img = threshold.threshold_image(undist_img)
+        ## origin_image -> undistort -> threshold -> top-down-perspective (aka bird-eye-view)
+        #thresholded_img = threshold.threshold_origin_image(undist_img)
         #warped_img = utils.warp(thresholded_img, self.warp_mtx)[:,:,0]
         #out_img, left_fit, right_fit = self.find_lane_lines(warped_img)
 
+        # origin_image -> undistort -> top-down-perspective (aka bird-eye-view) -> threshold
         warped_img = utils.warp(undist_img, self.warp_mtx)
         thresholded_img = threshold.threshold_image(warped_img)
         out_img, left_fit, right_fit = self.find_lane_lines(undist_img, thresholded_img[:, :, 0])
 
         return self.post_process_frame(undist_img, left_fit, right_fit)
 
+    """
+    Detects lane lines.
+    Tries to use optimized method if possible.
+    If lane line detected by optimized version has unexpected structure
+    (distances between left and right lines have large difference along the lines),
+    then method uses straight method.
+    """
     def find_lane_lines(self, undist_img, warped_img):
-        #out_img, left_fit, right_fit = find_lane_lines(warped_img)
         if self.left.detected == False or self.right.detected == False:
             return find_lane_lines(warped_img, gen_out_img=False)
 
@@ -104,6 +118,9 @@ class LaneLinesFinder(object):
 
         return out_img, left_fit, right_fit
 
+    """
+    Calculates distances between left and right lines (at the beginning, at the middle, at the end)
+    """
     def calc_distances(self, img, left_fit, right_fit):
         ploty, left_fitx, right_fitx = generate_fit_coords(img, left_fit, right_fit)
         min_y, max_y = np.min(ploty), np.max(ploty)
@@ -116,19 +133,13 @@ class LaneLinesFinder(object):
         dist_max_y = math.fabs(poly_left(max_y) - poly_right(max_y))
         return dist_min_y, dist_mid_y, dist_max_y
 
+    """
+    Stores info about found lane.
+    Builds average lane using recent detected lanes.
+    Calculates the curvature and the position.
+    Draws info and detected lane on the undistorted image.
+    """
     def post_process_frame(self, undist_img, left_fit, right_fit):
-        # Sanity checks
-        dist_min_y, dist_mid_y, dist_max_y = 0, 0, 0
-        # if left_fit is not None and right_fit is not None and len(self.left.recent_fits) > 0:
-        #     dist_min_y, dist_mid_y, dist_max_y = self.calc_distances(undist_img, left_fit, right_fit)
-        #
-        #     max_dist_diff = 50
-        #     if math.fabs(dist_min_y - self.recent_dist_min_y) > max_dist_diff or \
-        #         math.fabs(dist_mid_y - self.recent_dist_mid_y) > max_dist_diff or \
-        #         math.fabs(dist_max_y - self.recent_dist_max_y) > max_dist_diff:
-        #         # something wrong, use last predictions
-        #         left_fit = right_fit = None
-
         # store lines
         self.left.detected = left_fit is not None
         self.right.detected = right_fit is not None
@@ -144,9 +155,6 @@ class LaneLinesFinder(object):
         if left_fit is not None and right_fit is not None:
             self.left.recent_fits.append(left_fit)
             self.right.recent_fits.append(right_fit)
-            self.recent_dist_min_y = dist_min_y
-            self.recent_dist_mid_y = dist_mid_y
-            self.recent_dist_max_y = dist_max_y
 
         # use average fits
         left_fit = avg_left_fit
@@ -154,10 +162,20 @@ class LaneLinesFinder(object):
 
         ploty, left_fitx, right_fitx = generate_fit_coords(undist_img, left_fit, right_fit)
 
+        # calc curvature
         self.left.radius_of_curvature, self.left.line_base_pos = calc_curvature_and_dist(undist_img, ploty, left_fitx)
         self.right.radius_of_curvature, self.right.line_base_pos = calc_curvature_and_dist(undist_img, ploty, right_fitx)
         deviation_from_center = (math.fabs(self.right.line_base_pos - self.left.line_base_pos)/2)*100
 
+        self.print_info(undist_img, left_fit, right_fit, deviation_from_center)
+
+        result = utils.unwarp(undist_img, self.warp_mtx_inv, ploty, left_fitx, right_fitx)
+        return result
+
+    """
+    Draws info on the undistorted image
+    """
+    def print_info(self, undist_img, left_fit, right_fit, deviation_from_center):
         txt_color = (255, 255, 255)
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(undist_img, 'Left radius curvature: {0:.2f} m'.format(self.left.radius_of_curvature), (10, 50), font, 1, txt_color, 2)
@@ -165,13 +183,12 @@ class LaneLinesFinder(object):
         cv2.putText(undist_img, 'Distance to Left line: {0:.2f} m'.format(self.left.line_base_pos), (10, 150), font, 1, txt_color, 2)
         cv2.putText(undist_img, 'Distance to Right line: {0:.2f} m'.format(self.right.line_base_pos), (10, 200), font, 1, txt_color, 2)
         cv2.putText(undist_img, 'Deviation from center: {0:.2f} cm'.format(deviation_from_center), (10, 250), font, 1, txt_color, 2)
-        cv2.putText(undist_img, 'Left: {0}'.format(left_fit), (10, 300), font, 1, txt_color, 2)
-        cv2.putText(undist_img, 'Right: {0}'.format(right_fit), (10, 350), font, 1, txt_color, 2)
+        #cv2.putText(undist_img, 'Left: {0}'.format(left_fit), (10, 300), font, 1, txt_color, 2)
+        #cv2.putText(undist_img, 'Right: {0}'.format(right_fit), (10, 350), font, 1, txt_color, 2)
 
-        result = utils.unwrap(undist_img, self.warp_mtx_inv, ploty, left_fitx, right_fitx)
-        return result
-
-
+    """
+    Builds average fit using recent detected fits
+    """
     def average_fit(self, line, fit):
         models_num = len(line.recent_fits)
         if models_num == 0:
@@ -197,10 +214,12 @@ class LaneLinesFinder(object):
         else:
             result_coeffs = coeffs_accum / np.sum(weights)
 
-        #return np.poly1d(result_coeffs)
         return result_coeffs
 
 
+"""
+Calculate the curvature of the line and distance from the (top, center) of the image to the line
+"""
 def calc_curvature_and_dist(img, ploty, fitx):
     # Define y-value where we want radius of curvature
     # choose the maximum y-value, corresponding to the bottom of the image
@@ -225,14 +244,18 @@ def calc_curvature_and_dist(img, ploty, fitx):
 
     return radius_of_curvature, distance
 
-
+"""
+Generates (x,y) points for left and right fits
+"""
 def generate_fit_coords(img, left_fit, right_fit):
     ploty = np.linspace(0, img.shape[0] - 1, img.shape[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
     right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
     return ploty, left_fitx, right_fitx
 
-
+"""
+Detects initial peaks
+"""
 def find_initial_left_right_positions(img):
     w, h = img.shape[1], img.shape[0]
 
@@ -247,7 +270,10 @@ def find_initial_left_right_positions(img):
     right_x = np.argmax(histogram[mid_x:]) + mid_x
     return left_x, right_x
 
-
+"""
+Detects peaks at the passed range [y_low, y_high].
+The peak value is the largest value found in the pointed left and right windows.
+"""
 def find_peaks(img, left_x_curr, right_x_curr, y_low, y_high,
                left_win_x_low, left_win_x_high, right_win_x_low, right_win_x_high, min_pix=1):
     w, h = img.shape[1], img.shape[0]
@@ -283,7 +309,9 @@ def find_peaks(img, left_x_curr, right_x_curr, y_low, y_high,
 
     return left_peak, right_peak
 
-
+"""
+Computes window left and right bounds
+"""
 def calc_win_bounds(left_x_curr, right_x_curr, margin):
     left_win_x_low = left_x_curr - margin
     left_win_x_high = left_x_curr + margin
@@ -293,7 +321,12 @@ def calc_win_bounds(left_x_curr, right_x_curr, margin):
 
 
 """
-img - binary warped (Top-Down Perspective Mapping)
+Detects lane lines.
+img is the binary warped image (Top-Down Perspective Mapping).
+The method splits the image on n_wins strides.
+For the first stride find_initial_left_right_positions method is used to find starting windows positions.
+For the next strides find_peaks method is used to detect peak on the stride.
+The second polynomial is used to fit the found pixels.
 """
 def find_lane_lines(img, gen_out_img=True, n_wins=9, win_w=150):
     #print('find_lane_lines image.shape: {0}'.format(img.shape))
@@ -372,7 +405,10 @@ def find_lane_lines(img, gen_out_img=True, n_wins=9, win_w=150):
     return out_img, left_fit, right_fit
 
 
-
+"""
+The optimized lane lines find method.
+The method uses previous lane line to detect a lane line on the warped_image.
+"""
 def optimized_find_lane_lines(warped_img, left_fit, right_fit, gen_out_img=True):
     nonzero = warped_img.nonzero()
     nonzeroy = np.array(nonzero[0])
@@ -422,7 +458,9 @@ def optimized_find_lane_lines(warped_img, left_fit, right_fit, gen_out_img=True)
     return out_img, left_fit, right_fit
 
 
-
+"""
+Lane line find method from lecture
+"""
 def find_lane_lines2(binary_warped, gen_out_img=True):
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image

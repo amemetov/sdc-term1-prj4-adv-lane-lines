@@ -3,7 +3,16 @@ import numpy as np
 import cv2
 from skimage import exposure
 
+"""
+Load an image as RGB
+"""
+def load_image(fname):
+    return mpimg.imread(fname)
 
+
+"""
+Detect chessboard corners and return tuple of 3d real world space points with corresponding 2d image plane points
+"""
 def calc_chessboards_corners(images, num_x, num_y):
     objpoints = []  # 3d point in real world space
     imgpoints = []  # 2d points in image plane
@@ -28,61 +37,39 @@ def calc_chessboards_corners(images, num_x, num_y):
     return objpoints, imgpoints
 
 
-"""Applies a Gaussian Noise kernel"""
-def gaussian_blur(img, kernel_size=3):
-    return cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
-
-def equalize_hist(img):
-    img = exposure.equalize_hist(img)
-    img = (img * 255).astype(np.uint8)
-    return img
-
-
-def load_image(fname):
-    return mpimg.imread(fname)
-
-
-def preprocess_image(img):
-    # img = gaussian_blur(img)
-    # img = equalize_hist(img)
-    return img
-
-# hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
-# lower_white = np.array([27/2, 128, 128], dtype=np.uint8)
-# upper_white = np.array([76/2, 255, 200], dtype=np.uint8)
-# mask_yellow = cv2.inRange(hls, lower_white, upper_white)
-# img = cv2.bitwise_and(img, img, mask=mask_yellow)
-
-
-
-
-
-# def calibrate_undistort(img, objpoints, imgpoints):
-#     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, (img.shape[1], img.shape[0]), None, None)
-#     undist = cv2.undistort(img, mtx, dist, None, mtx)
-#     return undist
-
+"""
+Calibrate camera using passed world space points and corresponding image plane points.
+The method returns Camera Matrix and Distortion Coefficients.
+"""
 def calibrate(img, objpoints, imgpoints):
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, (img.shape[1], img.shape[0]), None, None)
     return mtx, dist
 
+
+"""
+Undistort image using passed Camera Matrix and Distortion Coefficients.
+"""
 def undistort(img, calibration_mtx, calibration_dist):
     undist = cv2.undistort(img, calibration_mtx, calibration_dist, None, calibration_mtx)
     return undist
 
 
-def warp(undist_img, matrix):
-    img_size = (undist_img.shape[1], undist_img.shape[0])
-
-    #M = cv2.getPerspectiveTransform(src, dst)
+"""
+Warp the image using passed Matrix
+"""
+def warp(img, matrix):
+    img_size = (img.shape[1], img.shape[0])
 
     # Warp the image using OpenCV warpPerspective()
-    warped = cv2.warpPerspective(undist_img, matrix, img_size)
+    warped = cv2.warpPerspective(img, matrix, img_size)
 
     return warped
 
 
-def unwrap(undist, Minv, ploty, left_fitx, right_fitx):
+"""
+Draw lane on the image and warp it back using passed Inverse Matrix
+"""
+def unwarp(undist, Minv, ploty, left_fitx, right_fitx):
     # Create an image to draw the lines on
     color_warp = np.zeros_like(undist)
 
@@ -100,3 +87,20 @@ def unwrap(undist, Minv, ploty, left_fitx, right_fitx):
     # Combine the result with the original image
     result = cv2.addWeighted(undist, 1, new_warp, 0.3, 0)
     return result
+
+
+"""
+Apply a Gaussian Noise kernel
+"""
+def gaussian_blur(img, kernel_size=3):
+    return cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
+
+"""
+Perform Histogram Equalization
+"""
+def equalize_hist(img):
+    img = exposure.equalize_hist(img)
+    img = (img * 255).astype(np.uint8)
+    return img
+
+
