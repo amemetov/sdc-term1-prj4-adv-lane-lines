@@ -89,8 +89,8 @@ I used a combination of 2 gradient thresholds (on Grayscaled image and S channel
 to generate a binary image.
 
 I tried 2 approach to detect lane lines:
-* Undistort -> Thresholding -> Wrapping (method `threshold_origin_image` in [threshold.py](threshold.py))
-* Undistort -> Wrapping -> Thresholding (method `threshold_image` in [threshold.py](threshold.py))
+* Undistort -> Thresholding -> Warpping (method `threshold_origin_image` in [threshold.py](threshold.py))
+* Undistort -> Warpping -> Thresholding (method `threshold_image` in [threshold.py](threshold.py))
 
 For me the second approach gave a better result.
   
@@ -163,7 +163,7 @@ I've used approach described in the lecture *#35. Measuring Curvature*.
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
-I implemented this step in the method `unwrap` line #72 in [utils.py](utils.py). 
+I implemented this step in the method `unwarp` line #72 in [utils.py](utils.py). 
 Here is an example of my result on a test image:
 
 ![alt text][test_img2_unwarp]
