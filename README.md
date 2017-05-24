@@ -195,3 +195,5 @@ Then I decided that Thresholding after Warping might give better result, I tried
 
 But my solution does not work for challenge videos, and I think because thresholding finds a lot unnecessary gradients.
 I think the same poor performance will be produced when some obstacles (cars, pedestrians, even shadows of trees, bridges, buildings) will appear on the road.
+
+Performance is not appropriate too, cause it's not realtime. Profiling is required and further fixing/modifying.
