@@ -193,7 +193,7 @@ Firstly I tried an approach showed in the lectures: Thresholding and then Warpin
 But I did not manage to find values which perform well for all frames of project video.
 Then I decided that Thresholding after Warping might give better result, I tried it and it worked after some parameters tuning.
 
-But my solution does not work for challenge videos, and I think because thresholding finds a lot unnecessary gradients.
+But my solution does not work for [the challenge video](./challenge_video_out.mp4), and I think because thresholding finds a lot unnecessary gradients.
 I think the same poor performance will be produced when some obstacles (cars, pedestrians, even shadows of trees, bridges, buildings) will appear on the road.
 
 Performance is not appropriate too, cause it's not realtime. Profiling is required and further fixing/modifying.
